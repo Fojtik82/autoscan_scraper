@@ -3,60 +3,58 @@ from bs4 import BeautifulSoup
 import sqlite3
 import time
 
-# Připojení k databázi
-conn = sqlite3.connect("vehicles.db")
-cursor = conn.cursor()
+def run_bazos_scraper():
+    print("🔵 Spouštím scraper pro Bazoš...")
 
-# Vytvoření tabulky, pokud ještě neexistuje
-cursor.execute("""
-    CREATE TABLE IF NOT EXISTS vehicles (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source TEXT,
-        vin TEXT,
-        brand TEXT,
-        model TEXT,
-        year TEXT,
-        price INTEGER,
-        link TEXT
-    )
-""")
-conn.commit()
+    conn = sqlite3.connect("vehicles.db")
+    cursor = conn.cursor()
 
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,
+            vin TEXT,
+            brand TEXT,
+            model TEXT,
+            year TEXT,
+            price INTEGER,
+            link TEXT
+        )
+    """)
+    conn.commit()
 
-def scrape_sauto():
-    base_url = "https://www.sauto.cz/osobni?strana="
-    pages_to_scrape = 1000  # 20 000 inzerátů = 1000 stránek po 20 vozech
+    headers = {"User-Agent": "Mozilla/5.0"}
+
+    base_url = "https://auto.bazos.cz/?hledat=&rubriky=www&hlokalita=&humkreis=25&cenaod=&cenado=&orderby=datum&vypis=detail&strana="
+    pages_to_scrape = 5  # nastavíš víc pokud chceš
     count = 0
 
     for page in range(1, pages_to_scrape + 1):
+        print(f"📄 Stahuji stránku {page}...")
         url = base_url + str(page)
-        print(f"📄 Načítám stránku {page} — {url}")
+
         try:
             response = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(response.text, "html.parser")
-            listings = soup.find_all("div", class_="c-item__content")
+            listings = soup.select("div.inzeraty a.inzeratynadpis")
 
-            for item in listings:
-                title_elem = item.find("a", class_="c-item__link")
-                price_elem = item.find("div", class_="c-item__price")
-                link = "https://www.sauto.cz" + title_elem["href"] if title_elem else ""
-                title = title_elem.text.strip() if title_elem else ""
-                price = price_elem.text.strip().replace(" Kč", "").replace(" ", "").replace("\xa0", "") if price_elem else ""
-                price = int(price) if price.isdigit() else None
+            for ad in listings:
+                title = ad.text.strip()
+                link = "https://auto.bazos.cz" + ad["href"]
+                price_elem = ad.find_next("div", class_="inzeratycena")
+                price_text = price_elem.text.strip().replace(" ", "").replace("Kč", "") if price_elem else ""
+                price = int(price_text) if price_text.isdigit() else None
 
-                # Předpokládaná struktura: "Škoda Octavia 1.6 TDI" => značka = Škoda, model = Octavia
-                parts = title.split()
+                # Rozdělení názvu na značku a model
+                parts = title.split(" ")
                 brand = parts[0] if len(parts) > 0 else ""
                 model = parts[1] if len(parts) > 1 else ""
-                year = ""  # Rok není hned dostupný na přehledu
+                year = None  # z Bazoš stránek se často nedá zjistit
 
                 cursor.execute("""
                     INSERT INTO vehicles (source, vin, brand, model, year, price, link)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, ("sauto", None, brand, model, year, price, link))
+                """, ("bazos", None, brand, model, year, price, link))
                 count += 1
 
             conn.commit()
@@ -64,11 +62,11 @@ def scrape_sauto():
 
         except Exception as e:
             print(f"❌ Chyba na stránce {page}: {e}")
-            time.sleep(3)
+            time.sleep(1)
 
-    print(f"✅ Hotovo! Uloženo {count} inzerátů ze Sauto.cz.")
+    conn.close()
+    print(f"✅ Hotovo! Uloženo {count} inzerátů z bazos.cz.")
 
-scrape_sauto()
 
 
 
