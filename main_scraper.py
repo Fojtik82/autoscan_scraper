@@ -1,20 +1,14 @@
+from subprocess import run
 
-# main_scraper.py
+print("Spouštím scraper pro TipCars...")
+run(["python", "scraper_tipcars.py"])
 
-import subprocess
+print("Spouštím scraper pro Sauto.cz...")
+run(["python", "scraper_sauto.py"])
 
-def run_scraper(script_name):
-    try:
-        print(f"Spouštím: {script_name}")
-        subprocess.run(["python", script_name], check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Chyba při spuštění {script_name}: {e}")
+print("Spouštím scraper pro Bazos.cz...")
+run(["python", "scraper_bazos.py"])
 
-if __name__ == "__main__":
-    scrapers = ["scraper_tipcars.py", "scraper_sauto.py", "scraper_bazos.py"]
-
-    for scraper in scrapers:
-        run_scraper(scraper)
 
 
 
