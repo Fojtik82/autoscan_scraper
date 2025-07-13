@@ -1,11 +1,9 @@
 import sqlite3
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
-import time
 
 def create_connection():
     conn = sqlite3.connect("vehicles.db")
@@ -23,54 +21,52 @@ def create_table(conn):
             year TEXT,
             price INTEGER,
             link TEXT
-        )
+        );
     """)
     conn.commit()
 
 def scrape_tipcars(limit=10):
+    base_url = "https://www.tipcars.com"
+    search_url = "https://www.tipcars.com/osobni"
+
     options = Options()
     options.add_argument('--headless')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-gpu')
     options.add_argument('--disable-blink-features=AutomationControlled')
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-    base_url = "https://www.tipcars.com/osobni/?strana="
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver.get(search_url)
+
+    html = driver.page_source
+    driver.quit()
+
+    soup = BeautifulSoup(html, 'html.parser')
+    listings = soup.find_all("a", class_="card", limit=limit)
+
     results = []
 
-    page = 1
-    while len(results) < limit:
-        driver.get(base_url + str(page))
-        time.sleep(2)
+    for item in listings:
+        link = base_url + item.get("href", "")
+        title_elem = item.find("h2")
+        price_elem = item.find("div", class_="price")
 
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
-        listings = soup.find_all("a", class_="card")
+        title = title_elem.text.strip() if title_elem else ""
+        price = price_elem.text.strip().replace(" Kč", "").replace(" ", "") if price_elem else ""
 
-        if not listings:
-            break
+        brand, model, year = (title.split(" ") + [None]*3)[:3]
 
-        for item in listings:
-            if len(results) >= limit:
-                break
-            link = "https://www.tipcars.com" + item.get("href")
-            title_elem = item.find("h2")
-            price_elem = item.find("div", class_="price")
+        results.append({
+            "source": "tipcars",
+            "vin": "",
+            "brand": brand or "",
+            "model": model or "",
+            "year": year or "",
+            "price": int(price) if price.isdigit() else 0,
+            "link": link
+        })
 
-            title = title_elem.text.strip() if title_elem else ""
-            price = price_elem.text.strip().replace(" Kč", "").replace(" ", "") if price_elem else "0"
-            brand, model, year = (title.split(" ") + [None]*3)[:3]
-
-            results.append({
-                "source": "tipcars",
-                "vin": "",
-                "brand": brand or "",
-                "model": model or "",
-                "year": year or "",
-                "price": int(price) if price.isdigit() else 0,
-                "link": link
-            })
-
-        page += 1
-
-    driver.quit()
     return results
 
 def save_to_db(conn, records):
@@ -79,7 +75,7 @@ def save_to_db(conn, records):
         cursor.execute("""
             INSERT INTO vehicles (source, vin, brand, model, year, price, link)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (rec['source'], rec['vin'], rec['brand'], rec['model'], rec['year'], rec['price'], rec['link']))
+        """, (rec["source"], rec["vin"], rec["brand"], rec["model"], rec["year"], rec["price"], rec["link"]))
     conn.commit()
 
 if _name_ == "_main_":
@@ -87,4 +83,4 @@ if _name_ == "_main_":
     create_table(conn)
     records = scrape_tipcars(limit=10)
     save_to_db(conn, records)
-    print(f"Uloženo {len(records)} záznamů do databáze")
+    print(f"✅ Uloženo {len(records)} záznamů do databáze")
