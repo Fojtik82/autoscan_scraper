@@ -1,6 +1,6 @@
-requests
-beautifulsoup4
-lxml
 selenium
 undetected-chromedriver
+webdriver-manager
+beautifulsoup4
+lxml
 sqlite3
