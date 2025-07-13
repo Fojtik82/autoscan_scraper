@@ -7,18 +7,18 @@ import time
 conn = sqlite3.connect("vehicles.db")
 cursor = conn.cursor()
 
-# Vytvoření tabulky, pokud ještě neexistuje
+# Vytvoření tabulky (pokud ještě neexistuje)
 cursor.execute("""
-    CREATE TABLE IF NOT EXISTS vehicles (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        source TEXT,
-        vin TEXT,
-        brand TEXT,
-        model TEXT,
-        year TEXT,
-        price INTEGER,
-        link TEXT
-    )
+CREATE TABLE IF NOT EXISTS vehicles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT,
+    vin TEXT,
+    brand TEXT,
+    model TEXT,
+    year TEXT,
+    price INTEGER,
+    link TEXT
+)
 """)
 conn.commit()
 
@@ -30,26 +30,26 @@ def scrape_tipcars():
 
     for page in range(1, pages_to_scrape + 1):
         url = base_url + str(page)
-        print(f"Načítám stránku {page} - {url}")
-
+        print(f"🔄 Načítám stránku {page} - {url}")
         try:
             response = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(response.text, "html.parser")
-            listings = soup.find_all("div", class_="tc-card")
+            listings = soup.find_all("div", class_="list-item__content")
 
             for item in listings:
-                title_elem = item.find("h2", class_="tc-card__title")
-                price_elem = item.find("span", class_="tc-card__price")
-                link_elem = item.find("a", class_="tc-card__title")
+                title_elem = item.find("h2", class_="tec-card__title")
+                price_elem = item.find("span", class_="tec-card__price")
+                link_elem = title_elem.find("a") if title_elem else None
 
                 if not title_elem or not price_elem or not link_elem:
+                    print("⚠️ Chybí některý prvek (title, price nebo link) – přeskočeno.")
                     continue
 
                 title = title_elem.text.strip()
-                price = price_elem.text.strip().replace(" \u20ac", "").replace(" ", "")
+                price = price_elem.text.strip().replace(" ", "").replace("\xa0Kč", "").replace("Kč", "")
                 link = "https://www.tipcars.com" + link_elem.get("href")
 
-                parts = title.split()
+                parts = title.split(" ")
                 brand = parts[0] if len(parts) > 0 else None
                 model = parts[1] if len(parts) > 1 else None
 
@@ -59,18 +59,16 @@ def scrape_tipcars():
                 """, ("tipcars", None, brand, model, None, int(price) if price.isdigit() else None, link))
 
                 count += 1
+                print(f"✅ {brand} {model} – {price} Kč – {link}")
+                time.sleep(0.1)
 
             conn.commit()
-            time.sleep(1)
 
         except Exception as e:
-            print(f"\u274c Chyba na stránce {page}: {e}")
+            print(f"❌ Výrazná chyba na stránce {page}: {e}")
             time.sleep(2)
 
-    print(f"\u2705 Hotovo! Uloženo {count} inzerátů z TipCars.cz.")
+    print(f"\n🎉 Hotovo! Uloženo {count} inzerátů z TipCars.cz.")
 
 scrape_tipcars()
 conn.close()
-
-
-
