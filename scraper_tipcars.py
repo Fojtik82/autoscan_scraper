@@ -68,6 +68,8 @@ def save_to_db(conn, records):
 if __name__ == "__main__":
     conn = create_connection()
     create_table(conn)
-    records = scrape_tipcars(limit=10)
+    records = scrape_tipcars(limit=10)  # stáhne 10 inzerátů pro test
     save_to_db(conn, records)
-    print(f"Uloženo {len(records)} záznamů do databáze.")
+    print(f"Uloženo {len(records)} záznamů do databáze")
+
+
