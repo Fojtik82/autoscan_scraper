@@ -1,91 +1,83 @@
-import requests
-from bs4 import BeautifulSoup
 import sqlite3
-import time
-
-BASE_URL = "https://www.sauto.cz/osobni?strana="
-DB_PATH = "vehicles.db"
-
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-    "Accept-Language": "cs-CZ,cs;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-}
+from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 def create_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect("vehicles.db")
+    return conn
+
+def create_table(conn):
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS vehicles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,
             vin TEXT,
-            title TEXT,
+            brand TEXT,
+            model TEXT,
+            year TEXT,
             price INTEGER,
-            url TEXT,
-            source TEXT
+            link TEXT
         )
     """)
     conn.commit()
-    return conn
 
-def save_vehicle(conn, title, price, url):
+def scrape_sauto(limit=10):
+    base_url = "https://www.sauto.cz"
+    search_url = "https://www.sauto.cz/osobni"
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver.get(search_url)
+    html = driver.page_source
+    driver.quit()
+
+    soup = BeautifulSoup(html, "html.parser")
+    cards = soup.find_all("a", class_="card", limit=limit)
+
+    results = []
+    for card in cards:
+        link = base_url + card.get("href", "")
+        title_elem = card.find("h2")
+        price_elem = card.find("div", class_="price")
+
+        title = title_elem.text.strip() if title_elem else ""
+        price = price_elem.text.strip().replace(" Kč", "").replace(" ", "") if price_elem else ""
+
+        brand, model, year = (title.split(" ") + [None]*3)[:3]
+
+        results.append({
+            "source": "sauto",
+            "vin": "",
+            "brand": brand or "",
+            "model": model or "",
+            "year": year or "",
+            "price": int(price) if price.isdigit() else 0,
+            "link": link
+        })
+
+    return results
+
+def save_to_db(conn, records):
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO vehicles (vin, title, price, url, source)
-        VALUES (?, ?, ?, ?, ?)
-    """, (None, title, price, url, "sauto"))
+    for rec in records:
+        cursor.execute("""
+            INSERT INTO vehicles (source, vin, brand, model, year, price, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (rec["source"], rec["vin"], rec["brand"], rec["model"], rec["year"], rec["price"], rec["link"]))
     conn.commit()
 
-def scrape_page(page_num, conn):
-    url = BASE_URL + str(page_num)
-    print(f"🔄 Načítám stránku {page_num}: {url}")
-    response = requests.get(url, headers=headers)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    listings = soup.find_all("div", class_="offer")  # nový selektor
-    if not listings:
-        print(f"⚠️ Stránka {page_num} – žádné inzeráty")
-        return 0
-
-    count = 0
-    for item in listings:
-        title_elem = item.find("h2")
-        price_elem = item.find("div", class_="price")
-
-        if not title_elem or not price_elem:
-            continue
-
-        title = title_elem.text.strip()
-        price_text = price_elem.text.strip().replace(" ", "").replace("Kč", "").replace("\xa0", "")
-        try:
-            price = int(price_text)
-        except ValueError:
-            price = None
-
-        link_tag = title_elem.find("a")
-        link = "https://www.sauto.cz" + link_tag["href"] if link_tag else ""
-
-        save_vehicle(conn, title, price, link)
-        count += 1
-        print(f"✅ {title} – {price} Kč")
-
-    print(f"✅ Stránka {page_num} – nalezeno {count} inzerátů")
-    return count
-
-def main():
+if _name_ == "_main_":
     conn = create_connection()
-    max_pages = 100
-    total = 0
-
-    for page in range(1, max_pages + 1):
-        count = scrape_page(page, conn)
-        if count == 0:
-            break
-        total += count
-        time.sleep(1)
-
-    conn.close()
-    print(f"\n🎉 Hotovo! Uloženo {total} inzerátů ze Sauto.cz.")
-
-if __name__ == "__main__":
-    main()
+    create_table(conn)
+    records = scrape_sauto(limit=10)
+    save_to_db(conn, records)
+    print(f"✅ Uloženo {len(records)} záznamů ze Sauto.cz do databáze")
