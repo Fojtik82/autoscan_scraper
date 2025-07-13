@@ -1,85 +1,73 @@
+import sqlite3
 import requests
 from bs4 import BeautifulSoup
-import sqlite3
-import time
 
-# Připojení k databázi
-conn = sqlite3.connect("vehicles.db")
-cursor = conn.cursor()
+def create_connection():
+    conn = sqlite3.connect("vehicles.db")
+    return conn
 
-# Vytvoření tabulky, pokud ještě neexistuje
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS vehicles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source TEXT,
-    vin TEXT,
-    brand TEXT,
-    model TEXT,
-    year TEXT,
-    price INTEGER,
-    link TEXT
-)
-""")
-conn.commit()
+def create_table(conn):
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS vehicles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT,
+            vin TEXT,
+            brand TEXT,
+            model TEXT,
+            year TEXT,
+            price INTEGER,
+            link TEXT
+        );
+    """)
+    conn.commit()
 
-def scrape_tipcars():
-    base_url = "https://www.tipcars.com/osobni/?strana="
+def scrape_tipcars(limit=10):
+    base_url = "https://www.tipcars.com"
+    search_url = "https://www.tipcars.com/osobni"
+    results = []
+
     headers = {
         "User-Agent": "Mozilla/5.0"
     }
 
-    count = 0
+    response = requests.get(search_url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
 
-    for page in range(1, 101):
-        url = base_url + str(page)
-        print(f"🔄 Načítám stránku {page}: {url}")
+    listings = soup.find_all("a", class_="card", limit=limit)
 
-        try:
-            response = requests.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(response.text, "html.parser")
-            listings = soup.find_all("div", class_="card-body")  # opravený selektor
+    for item in listings:
+        link = base_url + item.get("href")
+        title_elem = item.find("h2")
+        price_elem = item.find("div", class_="price")
 
-            if not listings:
-                print(f"⚠️ Stránka {page} - žádné inzeráty")
-                continue
+        title = title_elem.text.strip() if title_elem else ""
+        price = price_elem.text.strip().replace(" Kč", "").replace(" ", "") if price_elem else 0
 
-            for item in listings:
-                title_elem = item.find("h2", class_="card-title")
-                price_elem = item.find("span", class_="card-price")
-                link_elem = item.find("a", href=True)
+        brand, model, year = (title.split(" ") + [None]*3)[:3]
+        results.append({
+            "source": "tipcars",
+            "vin": "",
+            "brand": brand or "",
+            "model": model or "",
+            "year": year or "",
+            "price": int(price) if price.isdigit() else 0,
+            "link": link
+        })
+    return results
 
-                if not title_elem or not price_elem or not link_elem:
-                    print("⚠️ Chybí název, cena nebo odkaz – přeskočeno.")
-                    continue
+def save_to_db(conn, records):
+    cursor = conn.cursor()
+    for rec in records:
+        cursor.execute("""
+            INSERT INTO vehicles (source, vin, brand, model, year, price, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (rec['source'], rec['vin'], rec['brand'], rec['model'], rec['year'], rec['price'], rec['link']))
+    conn.commit()
 
-                title = title_elem.text.strip()
-                price_text = price_elem.text.strip().replace(" ", "").replace("Kč", "").replace("\xa0", "")
-                link = "https://www.tipcars.com" + link_elem["href"]
-
-                parts = title.split()
-                brand = parts[0] if len(parts) > 0 else None
-                model = parts[1] if len(parts) > 1 else None
-
-                try:
-                    price = int(price_text)
-                except ValueError:
-                    price = None
-
-                cursor.execute("""
-                INSERT INTO vehicles (source, vin, brand, model, year, price, link)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, ("tipcars", None, brand, model, None, price, link))
-
-                count += 1
-
-            conn.commit()
-            time.sleep(0.5)
-
-        except Exception as e:
-            print(f"❌ Chyba na stránce {page}: {e}")
-            time.sleep(2)
-
-    print(f"\n✅ Hotovo! Uloženo {count} inzerátů z TipCars.cz.")
-    conn.close()
-
-scrape_tipcars()
+if __name__ == "__main__":
+    conn = create_connection()
+    create_table(conn)
+    records = scrape_tipcars(limit=10)
+    save_to_db(conn, records)
+    print(f"Uloženo {len(records)} záznamů do databáze.")
