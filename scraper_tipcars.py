@@ -38,16 +38,17 @@ def scrape_tipcars(limit=10):
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
     driver.get(search_url)
-
     html = driver.page_source
+    driver.quit()
 
-    # Uložit HTML pro debug
+    # ✅ Zápis do souboru pro ladění
     with open("debug.html", "w", encoding="utf-8") as f:
         f.write(html)
 
-    driver.quit()
+    # ✅ Pro jistotu vypiš do konzole první 300 znaků
+    print(html[:300])
 
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, 'html.parser')
     listings = soup.find_all("a", class_="card", limit=limit)
 
     results = []
@@ -59,4 +60,32 @@ def scrape_tipcars(limit=10):
         title = title_elem.text.strip() if title_elem else ""
         price = price_elem.text.strip().replace(" Kč", "").replace(" ", "") if price_elem else "0"
 
-        brand, model, year =
+        brand, model, year = (title.split(" ") + [None]*3)[:3]
+
+        results.append({
+            "source": "tipcars",
+            "vin": "",
+            "brand": brand or "",
+            "model": model or "",
+            "year": year or "",
+            "price": int(price) if price.isdigit() else 0,
+            "link": link
+        })
+
+    return results
+
+def save_to_db(conn, records):
+    cursor = conn.cursor()
+    for rec in records:
+        cursor.execute("""
+            INSERT INTO vehicles (source, vin, brand, model, year, price, link)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (rec['source'], rec['vin'], rec['brand'], rec['model'], rec['year'], rec['price'], rec['link']))
+    conn.commit()
+
+if _name_ == "_main_":
+    conn = create_connection()
+    create_table(conn)
+    records = scrape_tipcars(limit=10)
+    save_to_db(conn, records)
+    print(f"Uloženo {len(records)} záznamů do databáze.")
