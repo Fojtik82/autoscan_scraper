@@ -1,9 +1,8 @@
-mport sqlite3
-from bs4 import BeautifulSoup
+import sqlite3
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
 
 def create_connection():
     conn = sqlite3.connect("vehicles.db")
@@ -21,37 +20,37 @@ def create_table(conn):
             year TEXT,
             price INTEGER,
             link TEXT
-        )
+        );
     """)
     conn.commit()
 
 def scrape_tipcars(limit=10):
-    base_url = "https://www.tipcars.com"
-    search_url = "https://www.tipcars.com/osobni"
-
     options = Options()
     options.add_argument("--headless")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
-    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--no-sandbox")
+    driver = webdriver.Chrome(options=options)
 
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    base_url = "https://www.tipcars.com"
+    search_url = "https://www.tipcars.com/osobni"
     driver.get(search_url)
-    html = driver.page_source
-    driver.quit()
+    time.sleep(5)  # Počkáme na načtení obsahu
 
-    soup = BeautifulSoup(html, 'html.parser')
+    soup = BeautifulSoup(driver.page_source, 'html.parser')
     listings = soup.find_all("a", class_="card", limit=limit)
 
+    print(f"Nalezeno {len(listings)} inzerátů")
+
     results = []
+
     for item in listings:
-        link = base_url + item.get("href", "")
+        link = base_url + item.get("href")
         title_elem = item.find("h2")
         price_elem = item.find("div", class_="price")
 
         title = title_elem.text.strip() if title_elem else ""
         price = price_elem.text.strip().replace(" Kč", "").replace(" ", "") if price_elem else "0"
+
         brand, model, year = (title.split(" ") + [None]*3)[:3]
 
         results.append({
@@ -64,6 +63,7 @@ def scrape_tipcars(limit=10):
             "link": link
         })
 
+    driver.quit()
     return results
 
 def save_to_db(conn, records):
@@ -72,10 +72,7 @@ def save_to_db(conn, records):
         cursor.execute("""
             INSERT INTO vehicles (source, vin, brand, model, year, price, link)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            rec["source"], rec["vin"], rec["brand"], rec["model"],
-            rec["year"], rec["price"], rec["link"]
-        ))
+        """, (rec['source'], rec['vin'], rec['brand'], rec['model'], rec['year'], rec['price'], rec['link']))
     conn.commit()
 
 if _name_ == "_main_":
@@ -83,4 +80,4 @@ if _name_ == "_main_":
     create_table(conn)
     records = scrape_tipcars(limit=10)
     save_to_db(conn, records)
-    print(f"✅ Uloženo {len(records)} záznamů do databáze")
+    print(f"Uloženo {len(records)} záznamů do databáze.")
