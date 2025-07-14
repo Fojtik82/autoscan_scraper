@@ -83,7 +83,7 @@ def save_to_db(conn, records):
         """, (rec['source'], rec['vin'], rec['brand'], rec['model'], rec['year'], rec['price'], rec['link']))
     conn.commit()
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     conn = create_connection()
     create_table(conn)
     records = scrape_tipcars(limit=10)
